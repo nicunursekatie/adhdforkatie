@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Check, Circle, Plus } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import {
   Task,
@@ -81,8 +81,11 @@ function Label({ children }: { children: React.ReactNode }) {
 export function TaskFormModal({ task, defaultProjectId = null, onClose }: Props) {
   const addTask = useStore((s) => s.addTask);
   const updateTask = useStore((s) => s.updateTask);
+  const toggleComplete = useStore((s) => s.toggleComplete);
   const projects = useStore((s) => s.projects);
   const categories = useStore((s) => s.categories);
+  const subtasks = useStore((s) => (task ? s.tasks.filter((t) => t.parentTaskId === task.id && !t.deletedAt) : []));
+  const [newSubtask, setNewSubtask] = useState('');
 
   const [form, setForm] = useState({
     title: task?.title ?? '',
@@ -291,6 +294,57 @@ export function TaskFormModal({ task, defaultProjectId = null, onClose }: Props)
                     {c.name}
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+          {task && (
+            <div>
+              <Label>
+                Subtasks{subtasks.length > 0 ? ` (${subtasks.filter((s) => s.completed).length}/${subtasks.length})` : ''}
+              </Label>
+              <div className="space-y-1.5">
+                {subtasks.map((st) => (
+                  <div key={st.id} className="flex items-center gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 dark:border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => toggleComplete(st.id)}
+                      aria-label={st.completed ? 'Mark incomplete' : 'Mark complete'}
+                      className={cn(
+                        'flex h-4 w-4 items-center justify-center rounded-full border',
+                        st.completed ? 'border-brand-600 bg-brand-600 text-white' : 'border-gray-300 text-transparent dark:border-gray-600'
+                      )}
+                    >
+                      {st.completed ? <Check size={11} /> : <Circle size={11} />}
+                    </button>
+                    <span className={cn('flex-1 text-sm', st.completed && 'text-gray-400 line-through')}>{st.title}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2">
+                  <input
+                    value={newSubtask}
+                    onChange={(e) => setNewSubtask(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newSubtask.trim()) {
+                        addTask({ title: newSubtask.trim(), parentTaskId: task.id, projectId: task.projectId });
+                        setNewSubtask('');
+                      }
+                    }}
+                    placeholder="Add a subtask…"
+                    className="flex-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-brand-400 dark:border-gray-700 dark:bg-gray-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newSubtask.trim()) return;
+                      addTask({ title: newSubtask.trim(), parentTaskId: task.id, projectId: task.projectId });
+                      setNewSubtask('');
+                    }}
+                    className="rounded-lg bg-gray-100 p-2 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                    aria-label="Add subtask"
+                  >
+                    <Plus size={15} />
+                  </button>
+                </div>
               </div>
             </div>
           )}

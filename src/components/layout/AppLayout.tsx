@@ -1,15 +1,50 @@
 import { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, ListChecks, Sparkles, CalendarClock, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import {
+  Home,
+  ListChecks,
+  Sparkles,
+  CalendarClock,
+  Settings as SettingsIcon,
+  LogOut,
+  Brain,
+  Wand2,
+  HeartHandshake,
+  CalendarCheck,
+  FolderKanban,
+  Tag,
+  CalendarDays,
+  Trash2,
+  LayoutGrid,
+} from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../lib/auth';
+import { FocusBar } from '../focus/FocusBar';
 
-const NAV = [
+// Full list for the desktop sidebar.
+const SIDEBAR = [
   { to: '/', label: 'Today', icon: Home, end: true },
   { to: '/tasks', label: 'Tasks', icon: ListChecks },
   { to: '/what-now', label: 'What Now?', icon: Sparkles },
   { to: '/planner', label: 'Planner', icon: CalendarClock },
+  { to: '/brain-dump', label: 'Brain Dump', icon: Brain },
+  { to: '/breakdown', label: 'Break it down', icon: Wand2 },
+  { to: '/accountability', label: 'Check-in', icon: HeartHandshake },
+  { to: '/weekly-review', label: 'Weekly Review', icon: CalendarCheck },
+  { to: '/projects', label: 'Projects', icon: FolderKanban },
+  { to: '/categories', label: 'Categories', icon: Tag },
+  { to: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { to: '/deleted-tasks', label: 'Deleted', icon: Trash2 },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
+];
+
+// Core five for the mobile bottom bar (everything else lives under "More").
+const BOTTOM = [
+  { to: '/', label: 'Today', icon: Home, end: true },
+  { to: '/tasks', label: 'Tasks', icon: ListChecks },
+  { to: '/what-now', label: 'What Now', icon: Sparkles },
+  { to: '/planner', label: 'Planner', icon: CalendarClock },
+  { to: '/more', label: 'More', icon: LayoutGrid },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -18,12 +53,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-full flex-col md:flex-row">
       {/* Sidebar (desktop) */}
       <aside className="hidden w-56 shrink-0 flex-col border-r border-gray-200 bg-white px-3 py-6 dark:border-gray-800 dark:bg-gray-900 md:flex">
-        <div className="mb-8 px-3">
+        <div className="mb-6 px-3">
           <h1 className="text-lg font-bold text-brand-600 dark:text-brand-400">ADHD Planner</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400">made for the way your brain works</p>
         </div>
-        <nav className="space-y-1">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+        <nav className="space-y-0.5">
+          {SIDEBAR.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -37,13 +72,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 )
               }
             >
-              <Icon size={18} />
+              <Icon size={17} />
               {label}
             </NavLink>
           ))}
         </nav>
         <div className="mt-auto px-3 pt-6">
-          {user?.email && <p className="mb-1 truncate text-xs text-gray-400" title={user.email}>{user.email}</p>}
+          {user?.email && (
+            <p className="mb-1 truncate text-xs text-gray-400" title={user.email}>
+              {user.email}
+            </p>
+          )}
           <button
             onClick={signOut}
             className="flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
@@ -66,9 +105,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">{children}</div>
       </main>
 
+      <FocusBar />
+
       {/* Bottom nav (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-gray-200 bg-white/95 backdrop-blur dark:border-gray-800 dark:bg-gray-900/95 md:hidden">
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+        {BOTTOM.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
