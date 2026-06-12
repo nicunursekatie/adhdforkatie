@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { useStore } from './store/useStore';
+import { useAuth } from './lib/auth';
 import { applySettingsToDocument } from './utils/applySettings';
-import { seedSampleData } from './store/sampleData';
 import { AppLayout } from './components/layout/AppLayout';
+import { SignIn } from './components/auth/SignIn';
+import { SetupNotice } from './components/auth/SetupNotice';
 import Dashboard from './pages/Dashboard';
 import TasksPage from './pages/TasksPage';
 import WhatNowPage from './pages/WhatNowPage';
@@ -12,7 +14,7 @@ import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
   const settings = useStore((s) => s.settings);
-  const hasSeeded = useStore((s) => s.hasSeededSampleData);
+  const { status } = useAuth();
 
   // Apply visual accommodations whenever they change.
   useEffect(() => {
@@ -27,10 +29,9 @@ export default function App() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  // First-run: give a gentle starting set so the app isn't an empty void.
-  useEffect(() => {
-    if (!hasSeeded) seedSampleData();
-  }, [hasSeeded]);
+  if (status === 'configuring') return <SetupNotice />;
+  if (status === 'loading') return <LoadingScreen />;
+  if (status === 'signed-out') return <SignIn />;
 
   return (
     <AppLayout>
@@ -42,5 +43,13 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </AppLayout>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-full items-center justify-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+    </div>
   );
 }

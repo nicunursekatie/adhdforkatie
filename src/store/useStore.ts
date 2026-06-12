@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
 } from '../types';
 import { idbStorage } from './storage';
+import { sync, CollectionKey, RemoteState } from './sync';
 import { getTodayString } from '../utils/dateUtils';
 
 const id = () => crypto.randomUUID();
@@ -49,7 +50,6 @@ interface AppState {
   deleteCategory: (id: string) => void;
 
   // Daily plans / time blocks
-  getDailyPlan: (date: string) => DailyPlan;
   addTimeBlock: (date: string, block: Omit<TimeBlock, 'id'>) => void;
   updateTimeBlock: (date: string, blockId: string, updates: Partial<TimeBlock>) => void;
   deleteTimeBlock: (date: string, blockId: string) => void;
@@ -63,9 +63,25 @@ interface AppState {
   // Settings
   updateSettings: (updates: Partial<AppSettings>) => void;
 
-  // Bulk / data management
+  // Data management
   importData: (data: Partial<AppState>) => void;
   markSeeded: () => void;
+
+  // Cloud sync hooks (no re-push — applied from remote)
+  hydrate: (state: RemoteState) => void;
+  applyRemoteUpsert: (key: CollectionKey, record: unknown) => void;
+  applyRemoteDelete: (key: CollectionKey, id: string) => void;
+  applyRemoteSettings: (settings: AppSettings) => void;
+  resetLocal: () => void;
+}
+
+// Merge a record into a collection array by id (insert or replace).
+function upsertById<T extends { id: string }>(arr: T[], record: T): T[] {
+  const i = arr.findIndex((x) => x.id === record.id);
+  if (i === -1) return [record, ...arr];
+  const copy = arr.slice();
+  copy[i] = record;
+  return copy;
 }
 
 export const useStore = create<AppState>()(
@@ -109,53 +125,81 @@ export const useStore = create<AppState>()(
           dependsOn: task.dependsOn ?? [],
         };
         set((s) => ({ tasks: [newTask, ...s.tasks] }));
+        sync.upsert('tasks', newTask);
         return newTask;
       },
 
-      updateTask: (taskId, updates) =>
+      updateTask: (taskId, updates) => {
+        let updated: Task | undefined;
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId ? { ...t, ...updates, updatedAt: now() } : t
-          ),
-        })),
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            updated = { ...t, ...updates, updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('tasks', updated);
+      },
 
-      toggleComplete: (taskId) =>
+      toggleComplete: (taskId) => {
+        let updated: Task | undefined;
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId
-              ? {
-                  ...t,
-                  completed: !t.completed,
-                  completedAt: !t.completed ? now() : null,
-                  updatedAt: now(),
-                }
-              : t
-          ),
-        })),
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            updated = {
+              ...t,
+              completed: !t.completed,
+              completedAt: !t.completed ? now() : null,
+              updatedAt: now(),
+            };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('tasks', updated);
+      },
 
-      deleteTask: (taskId) =>
+      deleteTask: (taskId) => {
+        let updated: Task | undefined;
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId ? { ...t, deletedAt: now(), updatedAt: now() } : t
-          ),
-        })),
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            updated = { ...t, deletedAt: now(), updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('tasks', updated);
+      },
 
-      restoreTask: (taskId) =>
+      restoreTask: (taskId) => {
+        let updated: Task | undefined;
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId ? { ...t, deletedAt: null, updatedAt: now() } : t
-          ),
-        })),
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            updated = { ...t, deletedAt: null, updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('tasks', updated);
+      },
 
-      purgeTask: (taskId) =>
-        set((s) => ({ tasks: s.tasks.filter((t) => t.id !== taskId && t.parentTaskId !== taskId) })),
+      purgeTask: (taskId) => {
+        const children = get().tasks.filter((t) => t.parentTaskId === taskId).map((t) => t.id);
+        set((s) => ({ tasks: s.tasks.filter((t) => t.id !== taskId && t.parentTaskId !== taskId) }));
+        sync.remove('tasks', taskId);
+        children.forEach((cid) => sync.remove('tasks', cid));
+      },
 
-      archiveTask: (taskId) =>
+      archiveTask: (taskId) => {
+        let updated: Task | undefined;
         set((s) => ({
-          tasks: s.tasks.map((t) =>
-            t.id === taskId ? { ...t, archived: true, updatedAt: now() } : t
-          ),
-        })),
+          tasks: s.tasks.map((t) => {
+            if (t.id !== taskId) return t;
+            updated = { ...t, archived: true, updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('tasks', updated);
+      },
 
       addProject: (project) => {
         const newProject: Project = {
@@ -170,22 +214,34 @@ export const useStore = create<AppState>()(
           updatedAt: now(),
         };
         set((s) => ({ projects: [...s.projects, newProject] }));
+        sync.upsert('projects', newProject);
         return newProject;
       },
 
-      updateProject: (projectId, updates) =>
+      updateProject: (projectId, updates) => {
+        let updated: Project | undefined;
         set((s) => ({
-          projects: s.projects.map((p) =>
-            p.id === projectId ? { ...p, ...updates, updatedAt: now() } : p
-          ),
-        })),
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            updated = { ...p, ...updates, updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('projects', updated);
+      },
 
-      deleteProject: (projectId) =>
+      deleteProject: (projectId) => {
+        // Detach tasks rather than deleting them — losing tasks feels punishing.
+        const affected = get()
+          .tasks.filter((t) => t.projectId === projectId)
+          .map((t) => ({ ...t, projectId: null, updatedAt: now() }));
         set((s) => ({
           projects: s.projects.filter((p) => p.id !== projectId),
-          // Detach tasks rather than deleting them — losing tasks feels punishing.
-          tasks: s.tasks.map((t) => (t.projectId === projectId ? { ...t, projectId: null } : t)),
-        })),
+          tasks: s.tasks.map((t) => (t.projectId === projectId ? { ...t, projectId: null, updatedAt: now() } : t)),
+        }));
+        sync.remove('projects', projectId);
+        affected.forEach((t) => sync.upsert('tasks', t));
+      },
 
       addCategory: (category) => {
         const newCategory: Category = {
@@ -196,79 +252,88 @@ export const useStore = create<AppState>()(
           updatedAt: now(),
         };
         set((s) => ({ categories: [...s.categories, newCategory] }));
+        sync.upsert('categories', newCategory);
         return newCategory;
       },
 
-      updateCategory: (categoryId, updates) =>
+      updateCategory: (categoryId, updates) => {
+        let updated: Category | undefined;
         set((s) => ({
-          categories: s.categories.map((c) =>
-            c.id === categoryId ? { ...c, ...updates, updatedAt: now() } : c
-          ),
-        })),
-
-      deleteCategory: (categoryId) =>
-        set((s) => ({
-          categories: s.categories.filter((c) => c.id !== categoryId),
-          tasks: s.tasks.map((t) => ({
-            ...t,
-            categoryIds: t.categoryIds.filter((cid) => cid !== categoryId),
-          })),
-        })),
-
-      getDailyPlan: (date) => {
-        const existing = get().dailyPlans.find((p) => p.date === date);
-        if (existing) return existing;
-        const plan: DailyPlan = { id: id(), date, timeBlocks: [] };
-        set((s) => ({ dailyPlans: [...s.dailyPlans, plan] }));
-        return plan;
+          categories: s.categories.map((c) => {
+            if (c.id !== categoryId) return c;
+            updated = { ...c, ...updates, updatedAt: now() };
+            return updated;
+          }),
+        }));
+        if (updated) sync.upsert('categories', updated);
       },
 
-      addTimeBlock: (date, block) =>
-        set((s) => {
-          const plans = ensurePlan(s.dailyPlans, date);
-          return {
-            dailyPlans: plans.map((p) =>
-              p.date === date ? { ...p, timeBlocks: [...p.timeBlocks, { ...block, id: id() }] } : p
-            ),
-          };
-        }),
+      deleteCategory: (categoryId) => {
+        const affected = get()
+          .tasks.filter((t) => t.categoryIds.includes(categoryId))
+          .map((t) => ({ ...t, categoryIds: t.categoryIds.filter((c) => c !== categoryId), updatedAt: now() }));
+        set((s) => ({
+          categories: s.categories.filter((c) => c.id !== categoryId),
+          tasks: s.tasks.map((t) =>
+            t.categoryIds.includes(categoryId)
+              ? { ...t, categoryIds: t.categoryIds.filter((c) => c !== categoryId), updatedAt: now() }
+              : t
+          ),
+        }));
+        sync.remove('categories', categoryId);
+        affected.forEach((t) => sync.upsert('tasks', t));
+      },
 
-      updateTimeBlock: (date, blockId, updates) =>
+      addTimeBlock: (date, block) => {
+        set((s) => ({ dailyPlans: ensurePlan(s.dailyPlans, date) }));
+        set((s) => ({
+          dailyPlans: s.dailyPlans.map((p) =>
+            p.date === date ? { ...p, timeBlocks: [...p.timeBlocks, { ...block, id: id() }] } : p
+          ),
+        }));
+        pushPlan(get(), date);
+      },
+
+      updateTimeBlock: (date, blockId, updates) => {
         set((s) => ({
           dailyPlans: s.dailyPlans.map((p) =>
             p.date === date
               ? { ...p, timeBlocks: p.timeBlocks.map((b) => (b.id === blockId ? { ...b, ...updates } : b)) }
               : p
           ),
-        })),
+        }));
+        pushPlan(get(), date);
+      },
 
-      deleteTimeBlock: (date, blockId) =>
+      deleteTimeBlock: (date, blockId) => {
         set((s) => ({
           dailyPlans: s.dailyPlans.map((p) =>
             p.date === date ? { ...p, timeBlocks: p.timeBlocks.filter((b) => b.id !== blockId) } : p
           ),
-        })),
+        }));
+        pushPlan(get(), date);
+      },
 
-      assignTaskToBlock: (date, blockId, taskId) =>
-        set((s) => {
-          const plans = ensurePlan(s.dailyPlans, date);
-          return {
-            dailyPlans: plans.map((p) =>
-              p.date === date
-                ? {
-                    ...p,
-                    timeBlocks: p.timeBlocks.map((b) =>
-                      b.id === blockId && !b.taskIds.includes(taskId)
-                        ? { ...b, taskIds: [...b.taskIds, taskId] }
-                        : b
-                    ),
-                  }
-                : p
-            ),
-          };
-        }),
+      assignTaskToBlock: (date, blockId, taskId) => {
+        set((s) => ({ dailyPlans: ensurePlan(s.dailyPlans, date) }));
+        set((s) => ({
+          dailyPlans: s.dailyPlans.map((p) =>
+            p.date === date
+              ? {
+                  ...p,
+                  timeBlocks: p.timeBlocks.map((b) =>
+                    b.id === blockId && !b.taskIds.includes(taskId)
+                      ? { ...b, taskIds: [...b.taskIds, taskId] }
+                      : b
+                  ),
+                }
+              : p
+          ),
+        }));
+        pushPlan(get(), date);
+      },
 
-      unassignTaskFromBlock: (date, blockId, taskId) =>
+      unassignTaskFromBlock: (date, blockId, taskId) => {
         set((s) => ({
           dailyPlans: s.dailyPlans.map((p) =>
             p.date === date
@@ -280,7 +345,9 @@ export const useStore = create<AppState>()(
                 }
               : p
           ),
-        })),
+        }));
+        pushPlan(get(), date);
+      },
 
       addJournalEntry: (entry) => {
         const today = new Date();
@@ -299,32 +366,72 @@ export const useStore = create<AppState>()(
           updatedAt: now(),
         };
         set((s) => ({ journalEntries: [newEntry, ...s.journalEntries] }));
+        sync.upsert('journalEntries', newEntry);
       },
 
-      addAccountabilityResponse: (resp) =>
-        set((s) => ({
-          accountabilityResponses: [
-            { ...resp, id: id(), createdAt: now() },
-            ...s.accountabilityResponses,
-          ],
-        })),
+      addAccountabilityResponse: (resp) => {
+        const record: AccountabilityResponse = { ...resp, id: id(), createdAt: now() };
+        set((s) => ({ accountabilityResponses: [record, ...s.accountabilityResponses] }));
+        sync.upsert('accountabilityResponses', record);
+      },
 
-      updateSettings: (updates) =>
-        set((s) => ({
-          settings: {
-            timeManagement: { ...s.settings.timeManagement, ...updates.timeManagement },
-            visual: { ...s.settings.visual, ...updates.visual },
-            ai: { ...s.settings.ai, ...updates.ai },
-          },
-        })),
+      updateSettings: (updates) => {
+        const next: AppSettings = {
+          timeManagement: { ...get().settings.timeManagement, ...updates.timeManagement },
+          visual: { ...get().settings.visual, ...updates.visual },
+          ai: { ...get().settings.ai, ...updates.ai },
+        };
+        set({ settings: next });
+        sync.settings(next);
+      },
 
       importData: (data) => set((s) => ({ ...s, ...data })),
       markSeeded: () => set({ hasSeededSampleData: true }),
+
+      hydrate: (state) =>
+        set((s) => ({
+          tasks: state.tasks ?? [],
+          projects: state.projects ?? [],
+          categories: state.categories ?? [],
+          dailyPlans: state.dailyPlans ?? [],
+          journalEntries: state.journalEntries ?? [],
+          accountabilityResponses: state.accountabilityResponses ?? [],
+          settings: state.settings ?? s.settings,
+        })),
+
+      applyRemoteUpsert: (key, record) =>
+        set((s) => ({ [key]: upsertById(s[key] as { id: string }[], record as { id: string }) }) as Partial<AppState>),
+
+      applyRemoteDelete: (key, recordId) =>
+        set((s) => ({ [key]: (s[key] as { id: string }[]).filter((x) => x.id !== recordId) }) as Partial<AppState>),
+
+      applyRemoteSettings: (settings) => set({ settings }),
+
+      resetLocal: () =>
+        set({
+          tasks: [],
+          projects: [],
+          categories: [],
+          dailyPlans: [],
+          journalEntries: [],
+          accountabilityResponses: [],
+        }),
     }),
     {
       name: 'adhd-planner',
       version: 1,
       storage: createJSONStorage(() => idbStorage),
+      // The local copy is just an offline cache; auth state lives in Supabase.
+      partialize: (s) => ({
+        tasks: s.tasks,
+        projects: s.projects,
+        categories: s.categories,
+        dailyPlans: s.dailyPlans,
+        journalEntries: s.journalEntries,
+        accountabilityResponses: s.accountabilityResponses,
+        settings: s.settings,
+        hasSeededSampleData: s.hasSeededSampleData,
+      }),
     }
   )
 );
@@ -332,6 +439,11 @@ export const useStore = create<AppState>()(
 function ensurePlan(plans: DailyPlan[], date: string): DailyPlan[] {
   if (plans.some((p) => p.date === date)) return plans;
   return [...plans, { id: crypto.randomUUID(), date, timeBlocks: [] }];
+}
+
+function pushPlan(state: AppState, date: string) {
+  const plan = state.dailyPlans.find((p) => p.date === date);
+  if (plan) sync.upsert('dailyPlans', plan);
 }
 
 function getWeekNumber(d: Date): number {
