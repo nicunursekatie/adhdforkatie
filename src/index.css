@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+}
+
+/* --- Visual accommodation: font size (applied to <html>) --- */
+html.font-small {
+  font-size: 14px;
+}
+html.font-medium {
+  font-size: 16px;
+}
+html.font-large {
+  font-size: 18px;
+}
+
+/* --- Visual accommodation: layout density --- */
+.density-compact {
+  --space-y: 0.5rem;
+}
+.density-comfortable {
+  --space-y: 0.875rem;
+}
+.density-spacious {
+  --space-y: 1.5rem;
+}
+
+/* --- Visual accommodation: reduced motion --- */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* --- Visual accommodation: high contrast --- */
+html.high-contrast {
+  --tw-ring-offset-width: 0px;
+}
+html.high-contrast body {
+  @apply bg-white text-black;
+}
+html.high-contrast .card {
+  @apply border-2 border-black;
+}
+
+/* Reusable surface */
+.card {
+  @apply rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900;
+}
+
+/* Hide scrollbars on the time grid but keep scrollability */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
