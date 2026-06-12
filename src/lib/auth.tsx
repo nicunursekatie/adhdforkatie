@@ -10,7 +10,8 @@ type Status = 'loading' | 'configuring' | 'signed-out' | 'signed-in';
 interface AuthValue {
   status: Status;
   user: User | null;
-  signInWithMagicLink: (email: string) => Promise<{ error?: string }>;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string) => Promise<{ error?: string; needsConfirmation?: boolean }>;
   signOut: () => Promise<void>;
 }
 
@@ -71,13 +72,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [status, user]);
 
-  const signInWithMagicLink = useCallback(async (email: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return { error: 'Supabase is not configured.' };
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin + window.location.pathname },
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     return error ? { error: error.message } : {};
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!supabase) return { error: 'Supabase is not configured.' };
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) return { error: error.message };
+    // With email confirmation disabled, a session comes back immediately.
+    // If it doesn't, the project still requires email confirmation.
+    return { needsConfirmation: !data.session };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -87,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ status, user, signInWithMagicLink, signOut }}>
+    <AuthContext.Provider value={{ status, user, signIn, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );
