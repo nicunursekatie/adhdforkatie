@@ -1,9 +1,17 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Keys come from env (Vite exposes VITE_*). Never hard-code them.
-// See SUPABASE_SETUP.md for how to create a project and fill these in.
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Public Supabase config for this app.
+//
+// These two values are PUBLIC by design — the publishable key is meant to be
+// shipped in the browser bundle, and all data access is protected by Row-Level
+// Security (see supabase/schema.sql), not by keeping the key secret. They're
+// baked in as defaults so deploys work with no extra setup; you can still
+// override them with VITE_SUPABASE_* env vars (e.g. to point at another project).
+const DEFAULT_URL = 'https://ruhyfserlmdhdydknyjk.supabase.co';
+const DEFAULT_ANON_KEY = 'sb_publishable_hoD7cjxs7hKUbHVDh3j4Ig__eSedMea';
+
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || DEFAULT_URL;
+const anonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || DEFAULT_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 
