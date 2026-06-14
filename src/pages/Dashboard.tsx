@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, Sun, AlertTriangle, CalendarDays } from 'lucide-react';
+import { Sparkles, Sun, AlertTriangle, CalendarDays, Inbox } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { Task } from '../types';
 import { QuickCapture } from '../components/tasks/QuickCapture';
 import { TaskCard } from '../components/tasks/TaskCard';
 import { TaskFormModal } from '../components/tasks/TaskFormModal';
-import { getTasksDueToday, getOverdueTasks } from '../utils/taskFilters';
+import { getTasksDueToday, getOverdueTasks, topLevelActive } from '../utils/taskFilters';
+import { sortTasks } from '../utils/taskPrioritization';
 import { getTimeContext, formatTimeRemaining } from '../utils/timeAwareness';
 
 export default function Dashboard() {
@@ -16,6 +17,17 @@ export default function Dashboard() {
   const dueToday = useMemo(() => getTasksDueToday(tasks), [tasks]);
   const overdue = useMemo(() => getOverdueTasks(tasks), [tasks]);
   const timeCtx = useMemo(() => getTimeContext(tasks), [tasks]);
+
+  // Everything else that's open (no date, or future-dated) — so a freshly
+  // captured task is always visible here, not just under Tasks.
+  const anytime = useMemo(() => {
+    const shown = new Set([...overdue, ...dueToday].map((t) => t.id));
+    return sortTasks(
+      topLevelActive(tasks).filter((t) => !shown.has(t.id)),
+      'smart'
+    );
+  }, [tasks, overdue, dueToday]);
+  const ANYTIME_LIMIT = 8;
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -89,6 +101,19 @@ export default function Dashboard() {
           dueToday.map((t) => <TaskCard key={t.id} task={t} onEdit={setEditing} />)
         )}
       </Section>
+
+      {anytime.length > 0 && (
+        <Section title="Anytime" icon={<Inbox size={16} className="text-gray-400" />} count={anytime.length}>
+          {anytime.slice(0, ANYTIME_LIMIT).map((t) => (
+            <TaskCard key={t.id} task={t} onEdit={setEditing} />
+          ))}
+          {anytime.length > ANYTIME_LIMIT && (
+            <Link to="/tasks" className="block py-1 text-center text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
+              View all {anytime.length} in Tasks →
+            </Link>
+          )}
+        </Section>
+      )}
 
       {editing !== undefined && <TaskFormModal task={editing} onClose={() => setEditing(undefined)} />}
     </div>
